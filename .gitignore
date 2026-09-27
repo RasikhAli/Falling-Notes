@@ -1,4 +1,4 @@
-# Logs
+# Logs & Debugging
 logs
 *.log
 npm-debug.log*
@@ -7,18 +7,89 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Runtime & Process dumps
+*.pid
+*.seed
+*.pid.lock
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Dependency Directories
+node_modules/
+jspm_packages/
+
+# Build Outputs
+dist/
+dist-ssr/
+build/
+out/
+
+# TypeScript & Linter Caches
+*.tsbuildinfo
+.eslintcache
+.stylelintcache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Bundler & Development Caches
+.vite/
+.cache/
+.parcel-cache/
+.turbo/
+
+# Environment Variables & Local Credentials
+.env
+.env.production
+.env.development
+.env.local
+.env.*.local
+*.env
+!.env.example
+
+# Test & Coverage Outputs
+coverage/
+.nyc_output/
+
+# Operating System Files
+# macOS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+
+# IDE & Editor Settings
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.swo
+*.sublime-workspace
+*.sublime-project
+
+# Visual Studio Code
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Temporary & Scratch Files
+*.bak
+*.tmp
+*.temp

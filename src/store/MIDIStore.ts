@@ -1,20 +1,16 @@
 import { create } from 'zustand';
 import { Midi } from '@tonejs/midi';
-import * as Tone from 'tone';
+import type { Note } from '../utils/Constants';
 import { audioEngine } from '../utils/AudioEngine';
-
-interface Note {
-  id: string;
-  midi: number;
-  time: number;
-  duration: number;
-  velocity: number;
-  isLive?: boolean;
-}
+import { AudioTranscriber } from '../utils/AudioTranscriber';
+import { DEMO_SONGS } from '../utils/DemoSongs';
 
 interface MIDIStore {
   midiData: Midi | null;
+  audioBuffer: AudioBuffer | null;
+  audioFileName: string | null;
   notes: Note[];
+  totalDuration: number;
   activeNotes: Set<number>;
   isPlaying: boolean;
   currentTime: number;
@@ -23,23 +19,55 @@ interface MIDIStore {
   activeLiveNotes: Map<number, Note>;
   nextNoteIndex: number;
   isSamplesLoaded: boolean;
-  
+  isAudioInitialized: boolean;
+  inputMode: 'piano' | 'harmonium';
+  liveTime: number;
+  showNotesManual: boolean;
+  audioPlayMode: 'original_audio' | 'vocal_remover' | 'instrument_only';
+  showLabels: 'both' | 'notes' | 'keys' | 'none';
+  transpose: number;
+  octaveShift: number;
+  showSettings: boolean;
+  showGuide: boolean;
+  isPerformanceMode: boolean;
+  isTranscribing: boolean;
+  transcriptionProgress: number;
+
   loadMIDI: (file: File) => Promise<void>;
+  loadAudioOrVideo: (file: File) => Promise<void>;
+  loadDemo: (index: number) => void;
   togglePlay: () => void;
   reset: () => void;
   clearMidi: () => void;
+  seekTo: (time: number) => void;
   setSpeed: (speed: number) => void;
+  setAudioPlayMode: (mode: 'original_audio' | 'vocal_remover' | 'instrument_only') => void;
+  setShowLabels: (labels: 'both' | 'notes' | 'keys' | 'none') => void;
+  toggleNotesManual: () => void;
+  setShowNotesManual: (val: boolean) => void;
   updateTime: (deltaSeconds: number) => void;
   triggerNoteOn: (midi: number, velocity?: number, isLive?: boolean) => void;
   triggerNoteOff: (midi: number, isLive?: boolean) => void;
   setSamplesLoaded: (loaded: boolean) => void;
+  setAudioInitialized: (val: boolean) => void;
+  setInputMode: (mode: 'piano' | 'harmonium') => void;
+  setTranspose: (val: number) => void;
+  setOctaveShift: (val: number) => void;
+  toggleSettings: () => void;
+  toggleGuide: () => void;
+  togglePerformanceMode: () => void;
 }
 
 let noteCounter = 0;
+// Fast active note expiration tracker: midi -> note end time (seconds)
+const activeMidiExpirations = new Map<number, number>();
 
 export const useMIDIStore = create<MIDIStore>((set, get) => ({
   midiData: null,
+  audioBuffer: null,
+  audioFileName: null,
   notes: [],
+  totalDuration: 0,
   activeNotes: new Set(),
   isPlaying: false,
   currentTime: 0,
@@ -48,161 +76,382 @@ export const useMIDIStore = create<MIDIStore>((set, get) => ({
   activeLiveNotes: new Map(),
   nextNoteIndex: 0,
   isSamplesLoaded: false,
+  isAudioInitialized: false,
+  inputMode: 'piano',
+  liveTime: 0,
+  showNotesManual: false,
+  // High fidelity studio audio by default on uploaded files
+  audioPlayMode: 'original_audio',
+  showLabels: 'both',
+  transpose: 0,
+  octaveShift: 3,
+  showSettings: false,
+  showGuide: false,
+  isPerformanceMode: false,
+  isTranscribing: false,
+  transcriptionProgress: 0,
 
-  loadMIDI: async (file: File) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      const arrayBuffer = e.target?.result as ArrayBuffer;
+  loadMIDI: async (file) => {
+    try {
+      audioEngine.stopAudioBuffer();
+      const arrayBuffer = await file.arrayBuffer();
       const midi = new Midi(arrayBuffer);
-      
       const allNotes: Note[] = [];
-      midi.tracks.forEach(track => {
-        track.notes.forEach(note => {
+      let maxTime = 0;
+
+      midi.tracks.forEach((track) => {
+        // Skip percussion/drum tracks if tonal tracks exist
+        const hasTonalTracks = midi.tracks.some(
+          (t) => !t.instrument?.percussion && t.channel !== 9 && t.notes.length > 0
+        );
+        if (hasTonalTracks && (track.instrument?.percussion || track.channel === 9)) {
+          return;
+        }
+
+        track.notes.forEach((note) => {
+          const endTime = note.time + note.duration;
+          if (endTime > maxTime) maxTime = endTime;
+
           allNotes.push({
-            id: `f-${noteCounter++}`,
+            id: `m-${noteCounter++}`,
             midi: note.midi,
             time: note.time,
-            duration: note.duration,
+            duration: Math.max(0.08, note.duration),
             velocity: note.velocity,
-            isLive: false
           });
         });
       });
 
       allNotes.sort((a, b) => a.time - b.time);
+      activeMidiExpirations.clear();
 
-      set({ 
-        midiData: midi, 
-        notes: allNotes, 
-        isPlaying: false, 
+      set({
+        midiData: midi,
+        audioBuffer: null,
+        audioFileName: file.name,
+        notes: allNotes,
+        totalDuration: maxTime,
+        audioPlayMode: 'instrument_only', // MIDI files are pure instrument notes
+        isPlaying: false,
         currentTime: 0,
         nextNoteIndex: 0,
-        liveHistory: [] 
+        activeNotes: new Set(),
+        liveHistory: []
       });
-    };
-    reader.readAsArrayBuffer(file);
+    } catch (err) {
+      console.error("Failed to parse MIDI file:", err);
+    }
+  },
+
+  loadAudioOrVideo: async (file) => {
+    try {
+      audioEngine.stopAudioBuffer();
+      set({ isTranscribing: true, transcriptionProgress: 0.1 });
+
+      const audioCtx = audioEngine.getAudioContext();
+      const arrayBuffer = await file.arrayBuffer();
+
+      set({ transcriptionProgress: 0.3 });
+      const decodedBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+
+      set({ transcriptionProgress: 0.5 });
+      const extractedNotes = await AudioTranscriber.transcribe(
+        decodedBuffer,
+        (progress) => set({ transcriptionProgress: 0.5 + progress * 0.45 })
+      );
+
+      activeMidiExpirations.clear();
+      set({
+        midiData: null,
+        audioBuffer: decodedBuffer,
+        audioFileName: file.name,
+        notes: extractedNotes,
+        totalDuration: decodedBuffer.duration,
+        audioPlayMode: 'original_audio',
+        isPlaying: false,
+        currentTime: 0,
+        nextNoteIndex: 0,
+        activeNotes: new Set(),
+        liveHistory: [],
+        isTranscribing: false,
+        transcriptionProgress: 1.0
+      });
+    } catch (err) {
+      console.error("Failed to decode audio/video file:", err);
+      set({ isTranscribing: false });
+    }
+  },
+
+  loadDemo: (index) => {
+    const demo = DEMO_SONGS[index] || DEMO_SONGS[0];
+    audioEngine.stopAudioBuffer();
+    activeMidiExpirations.clear();
+
+    const maxTime = demo.notes.reduce((max, n) => Math.max(max, n.time + n.duration), 0);
+
+    set({
+      midiData: null,
+      audioBuffer: null,
+      audioFileName: demo.name,
+      notes: [...demo.notes],
+      totalDuration: maxTime,
+      inputMode: demo.mode,
+      isPlaying: false,
+      currentTime: 0,
+      nextNoteIndex: 0,
+      activeNotes: new Set(),
+      liveHistory: []
+    });
   },
 
   togglePlay: () => {
-    const isPlaying = !get().isPlaying;
-    set({ isPlaying });
-    if (isPlaying) {
-      Tone.start();
-    }
-  },
-
-  reset: () => set({ 
-    currentTime: 0, 
-    isPlaying: false, 
-    activeNotes: new Set(),
-    nextNoteIndex: 0,
-    liveHistory: [],
-    activeLiveNotes: new Map()
-  }),
-
-  clearMidi: () => set({
-    midiData: null,
-    notes: [],
-    isPlaying: false,
-    currentTime: 0,
-    nextNoteIndex: 0,
-    liveHistory: []
-  }),
-  
-  setSpeed: (speed: number) => set({ playbackSpeed: speed }),
-  setSamplesLoaded: (loaded) => set({ isSamplesLoaded: loaded }),
-
-  updateTime: (deltaSeconds) => {
     const state = get();
-    const shouldTick = state.isPlaying || !state.midiData;
-    if (!shouldTick) return;
+    const willPlay = !state.isPlaying;
 
-    const newTime = state.currentTime + (deltaSeconds * state.playbackSpeed);
-    
-    // Optimized note trigger using nextNoteIndex pointer
-    if (state.isPlaying) {
-      let idx = state.nextNoteIndex;
-      while (idx < state.notes.length && state.notes[idx].time <= newTime) {
-        const note = state.notes[idx];
-        state.triggerNoteOn(note.midi, note.velocity, false);
-        
-        // Schedule off (Audio is handled by Tone, but visual still needs off)
-        // Since durations vary, we still need a set for off or we just check active?
-        // Actually, triggerNoteOff for MIDI files should be scheduled if possible or handled in next frames.
-        idx++;
+    if (willPlay) {
+      if (state.audioBuffer) {
+        if (state.audioPlayMode === 'original_audio') {
+          audioEngine.playAudioBuffer(state.audioBuffer, state.currentTime, state.playbackSpeed, false);
+        } else if (state.audioPlayMode === 'vocal_remover') {
+          audioEngine.playAudioBuffer(state.audioBuffer, state.currentTime, state.playbackSpeed, true);
+        }
       }
+    } else {
+      if (state.audioBuffer) {
+        audioEngine.pauseAudioBuffer();
+      }
+      // Release any sounding notes
+      state.activeNotes.forEach((midi) => audioEngine.triggerNoteOff(midi));
+      activeMidiExpirations.clear();
+    }
 
-      // Handle Note Offs (simplified: check activeNotes vs their end times in intervals)
-      // For visual performance, we can just check those that end in this window.
-      // Or search using a separate end-time sorted index (overkill for now).
-      // We'll stick to a simple filter for activeNotes for now as it's small (< 88).
-      state.activeNotes.forEach(midi => {
-          // Find the note that is currently active and should end
-          // (This is still O(ActiveNotes) which is max 88, so it's fine)
-          const activeFileNote = state.notes.find(n => n.midi === midi && !n.isLive && n.time <= state.currentTime && n.time + n.duration <= newTime);
-          if (activeFileNote) {
-              state.triggerNoteOff(midi, false);
-          }
-      });
+    set({ isPlaying: willPlay });
+  },
 
-      if (idx !== state.nextNoteIndex) {
-          set({ nextNoteIndex: idx });
+  reset: () => {
+    const state = get();
+    if (state.audioBuffer) {
+      audioEngine.stopAudioBuffer();
+    }
+    state.activeNotes.forEach((midi) => audioEngine.triggerNoteOff(midi));
+    activeMidiExpirations.clear();
+
+    set({
+      currentTime: 0,
+      nextNoteIndex: 0,
+      activeNotes: new Set(),
+      isPlaying: false,
+      liveHistory: []
+    });
+  },
+
+  clearMidi: () => {
+    const state = get();
+    if (state.audioBuffer) {
+      audioEngine.stopAudioBuffer();
+    }
+    state.activeNotes.forEach((midi) => audioEngine.triggerNoteOff(midi));
+    activeMidiExpirations.clear();
+
+    set({
+      midiData: null,
+      audioBuffer: null,
+      audioFileName: null,
+      notes: [],
+      totalDuration: 0,
+      isPlaying: false,
+      currentTime: 0,
+      nextNoteIndex: 0,
+      activeNotes: new Set(),
+      liveHistory: []
+    });
+  },
+
+  seekTo: (time: number) => {
+    const state = get();
+    const targetTime = Math.max(0, Math.min(time, state.totalDuration || 9999));
+
+    // Stop active sounding notes
+    state.activeNotes.forEach((midi) => audioEngine.triggerNoteOff(midi));
+    activeMidiExpirations.clear();
+
+    // Find the next note index
+    let nextIndex = 0;
+    while (nextIndex < state.notes.length && state.notes[nextIndex].time < targetTime) {
+      nextIndex++;
+    }
+
+    if (state.audioBuffer && state.isPlaying) {
+      if (state.audioPlayMode === 'original_audio') {
+        audioEngine.playAudioBuffer(state.audioBuffer, targetTime, state.playbackSpeed, false);
+      } else if (state.audioPlayMode === 'vocal_remover') {
+        audioEngine.playAudioBuffer(state.audioBuffer, targetTime, state.playbackSpeed, true);
       }
     }
 
-    // Update ongoing live notes' duration
+    set({
+      currentTime: targetTime,
+      nextNoteIndex: nextIndex,
+      activeNotes: new Set()
+    });
+  },
+
+  setSpeed: (speed) => {
+    const state = get();
+    set({ playbackSpeed: speed });
+    if (state.isPlaying && state.audioBuffer) {
+      if (state.audioPlayMode === 'original_audio') {
+        audioEngine.playAudioBuffer(state.audioBuffer, state.currentTime, speed, false);
+      } else if (state.audioPlayMode === 'vocal_remover') {
+        audioEngine.playAudioBuffer(state.audioBuffer, state.currentTime, speed, true);
+      }
+    }
+  },
+
+  setAudioPlayMode: (mode) => {
+    const state = get();
+    if (state.isPlaying && state.audioBuffer) {
+      if (mode === 'original_audio') {
+        audioEngine.playAudioBuffer(state.audioBuffer, state.currentTime, state.playbackSpeed, false);
+      } else if (mode === 'vocal_remover') {
+        audioEngine.playAudioBuffer(state.audioBuffer, state.currentTime, state.playbackSpeed, true);
+      } else {
+        audioEngine.stopAudioBuffer();
+      }
+    }
+    set({ audioPlayMode: mode });
+  },
+
+  setShowLabels: (labels) => set({ showLabels: labels }),
+  toggleNotesManual: () => set((state) => ({ showNotesManual: !state.showNotesManual })),
+  setShowNotesManual: (val) => set({ showNotesManual: val }),
+
+  updateTime: (delta) => {
+    const state = get();
+    const newLiveTime = state.liveTime + delta;
+
+    // Continuously update live notes durations and prune expired notes
     const newActiveLive = new Map(state.activeLiveNotes);
-    newActiveLive.forEach((note) => {
-        note.duration = newTime - note.time;
-    });
+    if (newActiveLive.size > 0) {
+      newActiveLive.forEach((note) => {
+        note.duration = Math.max(0.1, newLiveTime - note.time);
+      });
+    }
 
-    set({ currentTime: newTime, activeLiveNotes: newActiveLive });
-  },
+    let newLiveHistory = state.liveHistory;
+    if (newLiveHistory.length > 0) {
+      newLiveHistory = newLiveHistory.filter((note) => newLiveTime - note.time < 12);
+    }
 
-  triggerNoteOn: (midi: number, velocity: number = 0.5, isLive: boolean = true) => {
-    audioEngine.playNote(midi, velocity);
-    set((state) => {
-      const newActive = new Set(state.activeNotes);
-      newActive.add(midi);
-      
-      const nextState: any = { activeNotes: newActive };
+    // If song is NOT playing, advance liveTime and return
+    if (!state.isPlaying) {
+      set({
+        liveTime: newLiveTime,
+        activeLiveNotes: newActiveLive,
+        liveHistory: newLiveHistory,
+      });
+      return;
+    }
 
-      if (isLive) {
-        const newNote: Note = {
-          id: `l-${noteCounter++}`,
-          midi,
-          time: state.currentTime,
-          duration: 0.1, // Initial
-          velocity,
-          isLive: true
-        };
-        const newActiveLive = new Map(state.activeLiveNotes);
-        newActiveLive.set(midi, newNote);
-        nextState.activeLiveNotes = newActiveLive;
-        
-        // Add to history too
-        nextState.liveHistory = [...state.liveHistory.slice(-200), newNote];
+    // If song IS playing:
+    const newTime = state.currentTime + delta * state.playbackSpeed;
+    const newActiveNotes = new Set(state.activeNotes);
+    let nextIndex = state.nextNoteIndex;
+
+    const playSynthesizerNotes = state.audioPlayMode === 'instrument_only' || !state.audioBuffer;
+
+    while (nextIndex < state.notes.length && state.notes[nextIndex].time <= newTime) {
+      const note = state.notes[nextIndex];
+      newActiveNotes.add(note.midi);
+
+      if (playSynthesizerNotes) {
+        audioEngine.triggerNoteOn(note.midi, note.velocity * 127);
       }
 
-      return nextState;
+      // Record expiration time for O(1) release
+      const endTime = note.time + note.duration;
+      const currentExpiry = activeMidiExpirations.get(note.midi) || 0;
+      activeMidiExpirations.set(note.midi, Math.max(currentExpiry, endTime));
+
+      nextIndex++;
+    }
+
+    // Release finished notes efficiently
+    for (const [midi, endTime] of activeMidiExpirations.entries()) {
+      if (newTime >= endTime) {
+        newActiveNotes.delete(midi);
+        if (playSynthesizerNotes) {
+          audioEngine.triggerNoteOff(midi);
+        }
+        activeMidiExpirations.delete(midi);
+      }
+    }
+
+    // Auto-pause at end of track
+    if (state.totalDuration > 0 && newTime >= state.totalDuration + 1) {
+      if (state.audioBuffer) audioEngine.stopAudioBuffer();
+      set({ isPlaying: false, currentTime: state.totalDuration, liveTime: newLiveTime });
+      return;
+    }
+
+    set({
+      currentTime: newTime,
+      liveTime: newLiveTime,
+      activeNotes: newActiveNotes,
+      nextNoteIndex: nextIndex,
+      activeLiveNotes: newActiveLive,
+      liveHistory: newLiveHistory,
     });
   },
 
-  triggerNoteOff: (midi: number, isLive: boolean = true) => {
-    audioEngine.releaseNote(midi);
-    set((state) => {
-      const newActive = new Set(state.activeNotes);
-      newActive.delete(midi);
-      
-      const nextState: any = { activeNotes: newActive };
+  triggerNoteOn: (midi, velocity = 100, isLive = false) => {
+    const state = get();
+    if (isLive) {
+      const newNote: Note = {
+        id: `live-${noteCounter++}`,
+        midi,
+        time: state.liveTime,
+        duration: 0.1,
+        velocity: velocity / 127,
+        isLive: true
+      };
+      set({
+        activeLiveNotes: new Map(state.activeLiveNotes).set(midi, newNote),
+        liveHistory: [...state.liveHistory.slice(-250), newNote],
+        activeNotes: new Set(state.activeNotes).add(midi)
+      });
+    } else {
+      set({ activeNotes: new Set(state.activeNotes).add(midi) });
+    }
+    audioEngine.triggerNoteOn(midi, velocity);
+  },
 
-      if (isLive) {
-        const newActiveLive = new Map(state.activeLiveNotes);
-        newActiveLive.delete(midi);
-        nextState.activeLiveNotes = newActiveLive;
+  triggerNoteOff: (midi, isLive = true) => {
+    const state = get();
+    if (isLive) {
+      const liveNote = state.activeLiveNotes.get(midi);
+      if (liveNote) {
+        liveNote.duration = Math.max(0.15, state.liveTime - liveNote.time);
       }
+      const nextLive = new Map(state.activeLiveNotes);
+      nextLive.delete(midi);
+      const nextActive = new Set(state.activeNotes);
+      nextActive.delete(midi);
+      set({ activeLiveNotes: nextLive, activeNotes: nextActive });
+    } else {
+      const nextActive = new Set(state.activeNotes);
+      nextActive.delete(midi);
+      set({ activeNotes: nextActive });
+    }
+    audioEngine.triggerNoteOff(midi);
+  },
 
-      return nextState;
-    });
-  }
+  setSamplesLoaded: (loaded) => set({ isSamplesLoaded: loaded }),
+  setAudioInitialized: (val) => set({ isAudioInitialized: val }),
+  setInputMode: (mode) => set({ inputMode: mode }),
+  setTranspose: (val) => set({ transpose: val }),
+  setOctaveShift: (val) => set({ octaveShift: val }),
+  toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
+  toggleGuide: () => set((state) => ({ showGuide: !state.showGuide })),
+  togglePerformanceMode: () => set((state) => ({ isPerformanceMode: !state.isPerformanceMode })),
 }));

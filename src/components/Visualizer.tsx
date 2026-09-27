@@ -1,52 +1,89 @@
 import React, { Suspense } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { PerspectiveCamera, Stars } from '@react-three/drei';
+import { Canvas, useThree } from '@react-three/fiber';
+import { OrthographicCamera, Stars } from '@react-three/drei';
 import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { Piano } from './Piano';
 import { NoteBars } from './NoteBars';
+import { useMIDIStore } from '../store/MIDIStore';
 
-const Scene: React.FC = () => {
-    return (
-        <>
-            <color attach="background" args={['#050505']} />
-            <ambientLight intensity={0.4} />
-            <pointLight position={[0, 20, 10]} intensity={3.0} color="#ffaa00" />
-            <pointLight position={[60, 10, -5]} intensity={2} color="#ffaa00" />
-            <pointLight position={[-60, 10, -5]} intensity={2} color="#ffaa00" />
-            
-            {/* Top-down Synthesia camera */}
-            <PerspectiveCamera 
-                makeDefault 
-                position={[0, 55, 55]} 
-                fov={80}
-                rotation={[-Math.PI / 2.6, 0, 0]}
-            />
-            
-            <Suspense fallback={null}>
-                <Stars radius={100} depth={50} count={2000} factor={4} saturation={0} fade speed={1} />
-                
-                <NoteBars />
-                <Piano />
-                
-                <EffectComposer>
-                    <Bloom 
-                        luminanceThreshold={0.4} 
-                        mipmapBlur 
-                        intensity={2.0} 
-                        radius={0.3} 
-                    />
-                </EffectComposer>
-            </Suspense>
-        </>
-    );
+const ResponsiveScene: React.FC = () => {
+  const isPerformanceMode = useMIDIStore((state) => state.isPerformanceMode);
+  const inputMode = useMIDIStore((state) => state.inputMode);
+  const { size } = useThree();
+
+  // Dynamic aspect ratio calculation
+  const aspect = Math.max(0.2, size.width / Math.max(1, size.height));
+
+  // Determine optimal camera frustum so the keyboard is always fully framed across all screen sizes
+  const targetKeyboardWidth = inputMode === 'harmonium' ? 76 : 138;
+
+  // On narrower windows, scale width so the 88 keys fit without clipping on edges
+  const halfWidth = aspect >= 1.7
+    ? targetKeyboardWidth / 2
+    : (targetKeyboardWidth / 2) * Math.max(1, 1.7 / aspect);
+
+  const halfHeight = halfWidth / aspect;
+  const centerY = -1.5;
+
+  return (
+    <>
+      <color attach="background" args={['#04050a']} />
+
+      {/* 3D Lighting */}
+      <ambientLight intensity={1.3} />
+      <directionalLight position={[0, 25, 20]} intensity={2.2} />
+      <pointLight position={[0, -10, 12]} intensity={1.5} distance={60} />
+
+      {/* Responsive Orthographic Camera */}
+      <OrthographicCamera
+        makeDefault
+        position={[0, -1.0, 32]}
+        rotation={[0.16, 0, 0]}
+        left={-halfWidth}
+        right={halfWidth}
+        top={halfHeight + centerY}
+        bottom={-halfHeight + centerY}
+        near={0.1}
+        far={1000}
+      />
+
+      <Suspense fallback={null}>
+        {!isPerformanceMode && (
+          <Stars radius={150} depth={20} count={350} factor={0.6} saturation={0.2} fade speed={0.4} />
+        )}
+
+        <NoteBars />
+        <Piano />
+
+        {/* Balanced Bloom: Clean neon glow without white blown-out blobs */}
+        <EffectComposer>
+          <Bloom
+            luminanceThreshold={0.75}
+            intensity={0.55}
+            radius={0.35}
+            mipmapBlur
+          />
+        </EffectComposer>
+      </Suspense>
+    </>
+  );
 };
 
 export const Visualizer: React.FC = () => {
-    return (
-        <div className="w-full h-full bg-black">
-            <Canvas shadows gl={{ antialias: false, stencil: false, alpha: false, depth: true }} dpr={[1, 2]}>
-                <Scene />
-            </Canvas>
-        </div>
-    );
+  return (
+    <div className="w-full h-full bg-[#030306]">
+      <Canvas
+        gl={{
+          antialias: true,
+          stencil: false,
+          alpha: false,
+          depth: true,
+          powerPreference: 'high-performance'
+        }}
+        dpr={[1, 2]}
+      >
+        <ResponsiveScene />
+      </Canvas>
+    </div>
+  );
 };

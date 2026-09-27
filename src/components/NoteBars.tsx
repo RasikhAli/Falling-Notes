@@ -1,97 +1,214 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
-import { Box, Instances, Instance } from '@react-three/drei';
+import { Text } from '@react-three/drei';
 import * as THREE from 'three';
+import {
+  keys,
+  type Note,
+  type KeyInfo,
+  WHITE_KEY_WIDTH,
+  BLACK_KEY_WIDTH,
+  PIANO_HIT_Y,
+} from '../utils/Constants';
 import { useMIDIStore } from '../store/MIDIStore';
-import { keys, NOTE_FALL_SPEED, WHITE_KEY_WIDTH, BLACK_KEY_WIDTH } from '../utils/Constants';
 
-const VISIBLE_WINDOW = 8; // Seconds
+const VISIBLE_WINDOW_AHEAD = 12; // Seconds of falling notes visible in the sky
+const VISIBLE_WINDOW_BEHIND = 2; // Seconds after passing hit line
+const tempObject = new THREE.Object3D();
+const tempColor = new THREE.Color();
+
+// Helper component for floating note labels
+const NoteLabel: React.FC<{
+  note: Note;
+  keyInfo: KeyInfo;
+  speed: number;
+  avgX: number;
+  currentTime: number;
+  inputMode: 'piano' | 'harmonium';
+  showLabels: 'both' | 'notes' | 'keys' | 'none';
+}> = ({ note, keyInfo, speed, avgX, currentTime, inputMode, showLabels }) => {
+  if (showLabels === 'none') return null;
+
+  const dist = (note.time - currentTime) * speed;
+  const posY = PIANO_HIT_Y + dist + 0.6; // Position near leading edge of the falling bar
+
+  // Only render if close enough to be readable
+  if (posY < PIANO_HIT_Y - 2 || posY > 24) return null;
+
+  const shortcut = inputMode === 'harmonium' ? keyInfo.shortcutHarmonium : keyInfo.shortcutPiano;
+  const noteName = inputMode === 'harmonium' ? keyInfo.swara : keyInfo.noteName;
+
+  let text = '';
+  if (showLabels === 'both') {
+    text = shortcut ? `${noteName} [${shortcut}]` : noteName;
+  } else if (showLabels === 'notes') {
+    text = noteName;
+  } else if (showLabels === 'keys') {
+    text = shortcut ? `[${shortcut}]` : noteName;
+  }
+
+  return (
+    <group position={[keyInfo.x - avgX, posY, keyInfo.isBlack ? 0.9 : 0.6]}>
+      <Text
+        fontSize={keyInfo.isBlack ? 0.65 : 0.75}
+        color="#ffffff"
+        anchorX="center"
+        anchorY="bottom"
+        fontWeight="bold"
+        outlineWidth={0.06}
+        outlineColor="#000000"
+      >
+        {text}
+      </Text>
+    </group>
+  );
+};
 
 export const NoteBars: React.FC = () => {
-    const notes = useMIDIStore(state => state.notes);
-    const liveHistory = useMIDIStore(state => state.liveHistory);
-    const activeLiveNotes = useMIDIStore(state => state.activeLiveNotes);
-    const currentTime = useMIDIStore(state => state.currentTime);
-    const hasMidi = useMIDIStore(state => !!state.midiData);
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+  const notes = useMIDIStore((state) => state.notes);
+  const currentTime = useMIDIStore((state) => state.currentTime);
+  const liveHistory = useMIDIStore((state) => state.liveHistory);
+  const activeLiveNotes = useMIDIStore((state) => state.activeLiveNotes);
+  const hasMidiOrAudio = useMIDIStore((state) => !!state.midiData || !!state.audioBuffer || state.notes.length > 0);
+  const liveTime = useMIDIStore((state) => state.liveTime);
+  const playbackSpeed = useMIDIStore((state) => state.playbackSpeed);
+  const inputMode = useMIDIStore((state) => state.inputMode);
+  const showLabels = useMIDIStore((state) => state.showLabels);
 
-    const keyMap = useMemo(() => {
-        const map = new Map();
-        keys.forEach(k => map.set(k.midi, k));
-        return map;
-    }, []);
+  // Harmonium view filter (MIDI 53 to 85)
+  const visibleKeysList = inputMode === 'harmonium'
+    ? keys.filter((k) => k.midi >= 53 && k.midi <= 85)
+    : keys;
 
-    // Notes visible in the current time window
-    const visibleNotes = useMemo(() => {
-        const fileNotes = notes.filter(note => {
-            const start = note.time;
-            const end = start + note.duration;
-            return end > currentTime && start < currentTime + VISIBLE_WINDOW;
-        });
+  const avgX = visibleKeysList.length > 0
+    ? (visibleKeysList[0].x + visibleKeysList[visibleKeysList.length - 1].x) / 2
+    : 0;
 
-        // Current active live notes (growing)
-        const liveNotes: any[] = [];
-        activeLiveNotes.forEach(note => liveNotes.push(note));
-        
-        // Recently released live notes (rising/falling)
-        const activeIds = new Set(liveNotes.map(n => n.id));
-        const history = liveHistory.filter(note => {
-            if (activeIds.has(note.id)) return false; // Don't duplicate
-            
-            const end = note.time + note.duration;
-            if (hasMidi) { // falling
-                return end > currentTime;
-            } else { // rising
-                return note.time + note.duration + VISIBLE_WINDOW > currentTime;
-            }
-        });
+  // Filter notes visible in the current time window
+  const visibleNotes = useMemo(() => {
+    const inRange = (m: number) => (inputMode === 'harmonium' ? m >= 53 && m <= 85 : true);
 
-        return [...fileNotes, ...liveNotes, ...history];
-    }, [notes, liveHistory, activeLiveNotes, currentTime, hasMidi]);
+    const fileNotes = notes.filter((note) => {
+      if (!inRange(note.midi)) return false;
+      const start = note.time;
+      const end = start + note.duration;
+      return end >= currentTime - VISIBLE_WINDOW_BEHIND && start <= currentTime + VISIBLE_WINDOW_AHEAD;
+    });
 
-    // Direction: -1 for falling (with file), 1 for rising (live)
-    const direction = hasMidi ? -1 : 1;
+    const liveNotes: Note[] = [];
+    activeLiveNotes.forEach((note) => {
+      if (inRange(note.midi)) liveNotes.push(note);
+    });
 
-    return (
-        <Instances range={visibleNotes.length}>
-            <boxGeometry args={[1, 1, 0.5]} />
-            <meshStandardMaterial 
-                emissive="#ffcc00" 
-                emissiveIntensity={2} 
-                color="#ffaa00" 
-                transparent 
-                opacity={0.9} 
-            />
-            
-            {visibleNotes.map((note) => {
-                const keyInfo = keyMap.get(note.midi);
-                if (!keyInfo) return null;
+    const activeIds = new Set(liveNotes.map((n) => n.id));
+    const history = liveHistory.filter((note) => {
+      if (activeIds.has(note.id)) return false;
+      if (!inRange(note.midi)) return false;
+      const elapsed = liveTime - note.time;
+      return elapsed < 12; // 12-second fly-away window
+    });
 
-                const width = keyInfo.isBlack ? BLACK_KEY_WIDTH * 0.8 : WHITE_KEY_WIDTH * 0.7;
-                const height = Math.max(0.1, note.duration * NOTE_FALL_SPEED);
-                
-                // Position logic
-                let y;
-                if (direction === -1) { // FALLING (File Mode)
-                    // Bottom hits keyboard at note.time
-                    const yBottom = (note.time - currentTime) * NOTE_FALL_SPEED;
-                    y = yBottom + height / 2;
-                } else { // RISING (Live Mode)
-                    // Top (start edge) leaves keyboard at note.time
-                    // After the note started, its bottom is at (currentTime - time) * SPEED
-                    const yBottom = (currentTime - note.time) * NOTE_FALL_SPEED - height;
-                    y = yBottom + height / 2;
-                }
+    return [...fileNotes, ...liveNotes, ...history];
+  }, [notes, liveHistory, activeLiveNotes, currentTime, liveTime, inputMode]);
 
-                // If note is live and currently pressed, its duration is updated by store
-                // We just need to ensure scale and position are correct
-                return (
-                    <Instance
-                        key={note.id}
-                        position={[keyInfo.x, y, 0]}
-                        scale={[width, height, 1]}
-                    />
-                );
-            })}
-        </Instances>
-    );
+  // Notes near the keyboard that should show floating labels
+  const labeledNotes = useMemo(() => {
+    if (showLabels === 'none' || !hasMidiOrAudio) return [];
+    return visibleNotes
+      .filter((n) => !n.isLive && n.time <= currentTime + 5 && n.time + n.duration >= currentTime - 0.5)
+      .slice(0, 30); // Cap at 30 labels for high performance
+  }, [visibleNotes, currentTime, showLabels, hasMidiOrAudio]);
+
+  useFrame(() => {
+    if (!meshRef.current) return;
+
+    const speed = playbackSpeed * 15; // Vertical fall/fly speed
+
+    visibleNotes.forEach((note, i) => {
+      const keyInfo = keys.find((k) => k.midi === note.midi);
+      if (!keyInfo) return;
+
+      const durationY = Math.max(0.3, note.duration * speed);
+      const isBlack = keyInfo.isBlack;
+      const width = isBlack ? BLACK_KEY_WIDTH * 0.95 : WHITE_KEY_WIDTH * 0.92;
+      let posY = 0;
+
+      if (hasMidiOrAudio && !note.isLive) {
+        // --- Falling MIDI / Transcribed Notes ---
+        const dist = (note.time - currentTime) * speed;
+        posY = PIANO_HIT_Y + dist + durationY / 2;
+
+        if (posY + durationY / 2 < PIANO_HIT_Y - 3) {
+          // Off screen below piano
+          tempObject.scale.set(0, 0, 0);
+        } else {
+          tempObject.position.set(keyInfo.x - avgX, posY, isBlack ? 0.35 : 0.05);
+          tempObject.scale.set(width, durationY, 0.5);
+        }
+      } else {
+        // --- Rising Live Performance Notes (Fly-Away) ---
+        const elapsed = liveTime - note.time;
+        // Bar ascends smoothly; bottom edge detaches from key once released
+        const distFromKey = Math.max(0, elapsed - note.duration) * speed;
+        posY = PIANO_HIT_Y + distFromKey + durationY / 2;
+
+        tempObject.position.set(keyInfo.x - avgX, posY, isBlack ? 0.35 : 0.05);
+        tempObject.scale.set(width, durationY, 0.5);
+      }
+
+      tempObject.updateMatrix();
+      meshRef.current!.setMatrixAt(i, tempObject.matrix);
+
+      // Color coding for notes
+      if (inputMode === 'harmonium') {
+        // Golden warm theme
+        tempColor.set(isBlack ? '#f59e0b' : '#fbbf24');
+      } else {
+        // Cyan for white keys, Neon Pink/Magenta for black keys
+        tempColor.set(isBlack ? '#e879f9' : '#00f0ff');
+      }
+      meshRef.current!.setColorAt(i, tempColor);
+    });
+
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) {
+      meshRef.current.instanceColor.needsUpdate = true;
+    }
+    meshRef.current.count = visibleNotes.length;
+  });
+
+  return (
+    <group>
+      <instancedMesh ref={meshRef} args={[undefined, undefined, 3000]}>
+        <boxGeometry />
+        <meshStandardMaterial
+          color="#ffffff"
+          emissive="#ffffff"
+          emissiveIntensity={1.0}
+          roughness={0.25}
+          transparent
+          opacity={0.92}
+        />
+      </instancedMesh>
+
+      {/* Floating Note & Computer Key Labels on Falling Bars */}
+      {labeledNotes.map((note) => {
+        const keyInfo = keys.find((k) => k.midi === note.midi);
+        if (!keyInfo) return null;
+        return (
+          <NoteLabel
+            key={note.id}
+            note={note}
+            keyInfo={keyInfo}
+            speed={playbackSpeed * 15}
+            avgX={avgX}
+            currentTime={currentTime}
+            inputMode={inputMode}
+            showLabels={showLabels}
+          />
+        );
+      })}
+    </group>
+  );
 };
