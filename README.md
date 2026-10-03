@@ -19,6 +19,25 @@ Whether connected to a physical USB/Bluetooth MIDI keyboard or played directly v
 
 ---
 
+## 📸 Interface Showcase
+
+| 🌟 1. Web Audio Experience Splash | 🎹 2. 3D Concert Grand Piano Stage |
+| :---: | :---: |
+| ![Experience Splash Screen](screens/screen-1.png) | ![3D Concert Grand Piano](screens/screen-2.png) |
+| *One-click Web Audio initialization with modern responsive branding* | *Full 88-key physical layout, custom camera framing & floating control dock* |
+
+| ✨ 3. Real-Time Cascading Note Bars | 🎶 4. Multi-Track Playback & Scrubber |
+| :---: | :---: |
+| ![Cascading Note Bars](screens/screen-3.png) | ![Playback with Scrubber](screens/screen-4.png) |
+| *Glowing neon bars with impact light bursts and key depression physics* | *Live playback with time scrubber, pitch badges & synchronized key illumination* |
+
+| 📖 5. Song Finder & Sargam Notes Panel | 📋 6. Interactive Song Notes Manual |
+| :---: | :---: |
+| ![Song Finder Panel](screens/screen-5.png) | ![Song Notes Manual](screens/screen-6.png) |
+| *Full songs, Indian Sargam, dual-instrument Auto-Play & mapped keys* | *Timeline notes drawer with timestamps, key shortcuts & click-to-seek* |
+
+---
+
 ## ✨ Key Features
 
 - **🌌 3D Reactive Visualizer**
@@ -26,10 +45,17 @@ Whether connected to a physical USB/Bluetooth MIDI keyboard or played directly v
   - **Live Performance**: Dynamic rising "fly-away" bars for real-time notes played via keyboard or MIDI controller.
   - **Postprocessing Bloom**: High-intensity emissive lighting, bloom shaders, and starfield atmosphere.
   - **3D Physics-like Piano**: Keys smoothly depress and illuminate with light bursts upon impact.
+  - **Smart Viewport Resizing**: Dynamic camera framing automatically recenters the 3D scene when side drawers are opened.
 
 - **🎼 Dual Sound Engine**
   - **Concert Grand Piano**: High-definition multi-sampled acoustic grand piano with natural decay, hammer impulse modeling, and convolution concert reverb.
-  - **Harmonium**: Authentic Indian Harmonium twin-reed synthesis (Male + Bass reeds with warm low-pass filtering and natural bellows air tremolo).
+  - **Authentic Indian Harmonium**: Multi-reed acoustic model with male reed (`fatsawtooth`), sub-octave bass reed (-12 semitones), octave coupler (+12 semitones), natural bellows air tremolo, lowpass wood cabinet filter, and hall reverb presets (*Dry*, *Mehfil*, *Darbar*).
+
+- **🔍 Song Finder, Sargam Library & In-App Web Auto-Fetch**
+  - **Curated Full Songs**: Pre-loaded catalog of complete songs (*Shree Hanuman Chalisa (Bajrangbali)* with all Dohas and Chaupais, *Kal Ho Naa Ho*, *Tum Hi Ho*, *Raag Yaman*, etc.).
+  - **In-App Web Search & Auto-Fetch**: Search any song title or artist and auto-fetch the complete musical score, lyrics, Indian Sargam notation, and mapped keyboard keys directly in-app without clicking external links.
+  - **Dual Instrument Auto-Play**: Dedicated `Auto-Play Piano 🎹` and `Auto-Play Harmonium 🪗` buttons on every song with mapped keys displayed for both instruments.
+  - **Smart Sargam / Text Parser**: Paste custom Sargam (`S R G M P`), Hindi Swaras (`सा रे ग म`), Western notes, or keyboard sequences for immediate 3D visualization.
 
 - **🎥 Audio & Video (.mp4 / .mp3 / .wav) Extraction & Auto-Play**
   - **Audio Extraction**: Direct in-browser extraction of audio tracks from uploaded `.mp4` video files and `.mp3`, `.wav`, `.ogg`, `.m4a` files using Web Audio API.
@@ -110,8 +136,8 @@ Traditional Indian harmonium layout centered around Safed 1 (C4 = Sa):
 
 1. Clone or download the repository:
    ```bash
-   git clone https://github.com/Agnific/FallingNotes.git
-   cd FallingNotes
+   git clone https://github.com/RasikhAli/Falling-Notes.git
+   cd Falling-Notes
    ```
 
 2. Install dependencies:
