@@ -102,7 +102,7 @@ export const useInput = (): void => {
         if (raw !== undefined) {
           // Base 60 = C4
           const offset = raw - 60;
-          return 60 + (octaveShift - 3) * 12 + offset + transpose;
+          return 60 + (octaveShift - 3) * 12 + offset;
         }
         return undefined;
       }
@@ -118,7 +118,7 @@ export const useInput = (): void => {
 
       if (raw !== undefined) {
         const offset = raw - 60;
-        return 60 + (octaveShift - 3) * 12 + offset + transpose;
+        return 60 + (octaveShift - 3) * 12 + offset;
       }
       return undefined;
     };
@@ -164,10 +164,10 @@ export const useInput = (): void => {
 
             if (command === 0x90 && velocity > 0) {
               // Note On
-              triggerNoteOn(midi + transpose, velocity, true);
+              triggerNoteOn(midi, velocity, true);
             } else if (command === 0x80 || (command === 0x90 && velocity === 0)) {
               // Note Off
-              triggerNoteOff(midi + transpose, true);
+              triggerNoteOff(midi, true);
             }
           };
         }

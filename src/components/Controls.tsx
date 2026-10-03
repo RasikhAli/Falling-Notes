@@ -14,6 +14,11 @@ import {
   Mic,
   Tag,
   FileText,
+  BookOpen,
+  Waves,
+  Plus,
+  Minus,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useMIDIStore } from '../store/MIDIStore';
 
@@ -30,6 +35,21 @@ interface ControlsProps {
   hasTrack: boolean;
   isPerformanceMode: boolean;
 }
+
+const INDIAN_SCALES = [
+  { st: 0, key: 'C', in: 'Safed 1' },
+  { st: 1, key: 'C#', in: 'Kali 1' },
+  { st: 2, key: 'D', in: 'Safed 2' },
+  { st: 3, key: 'D#', in: 'Kali 2' },
+  { st: 4, key: 'E', in: 'Safed 3' },
+  { st: 5, key: 'F', in: 'Safed 4' },
+  { st: 6, key: 'F#', in: 'Kali 3' },
+  { st: 7, key: 'G', in: 'Safed 5' },
+  { st: 8, key: 'G#', in: 'Kali 4' },
+  { st: 9, key: 'A', in: 'Safed 6' },
+  { st: 10, key: 'A#', in: 'Kali 5' },
+  { st: 11, key: 'B', in: 'Safed 7' },
+];
 
 export const Controls: React.FC<ControlsProps> = ({
   isPlaying,
@@ -55,6 +75,16 @@ export const Controls: React.FC<ControlsProps> = ({
   const setShowLabels = useMIDIStore((state) => state.setShowLabels);
   const showNotesManual = useMIDIStore((state) => state.showNotesManual);
   const toggleNotesManual = useMIDIStore((state) => state.toggleNotesManual);
+  const showSongSearch = useMIDIStore((state) => state.showSongSearch);
+  const toggleSongSearch = useMIDIStore((state) => state.toggleSongSearch);
+  const transpose = useMIDIStore((state) => state.transpose);
+  const setTranspose = useMIDIStore((state) => state.setTranspose);
+  const reverbWet = useMIDIStore((state) => state.reverbWet);
+  const setReverbWet = useMIDIStore((state) => state.setReverbWet);
+  const harmoniumBassReed = useMIDIStore((state) => state.harmoniumBassReed);
+  const harmoniumCoupler = useMIDIStore((state) => state.harmoniumCoupler);
+  const harmoniumBellows = useMIDIStore((state) => state.harmoniumBellows);
+  const setHarmoniumConfig = useMIDIStore((state) => state.setHarmoniumConfig);
   const currentTime = useMIDIStore((state) => state.currentTime);
   const totalDuration = useMIDIStore((state) => state.totalDuration);
   const seekTo = useMIDIStore((state) => state.seekTo);
@@ -90,7 +120,11 @@ export const Controls: React.FC<ControlsProps> = ({
 
   return (
     <div
-      className={`fixed bottom-3 left-1/2 -translate-x-1/2 w-[95%] max-w-5xl flex flex-col gap-2 z-30 transition-all duration-500 ${
+      className={`fixed bottom-3 transition-all duration-300 z-30 flex flex-col gap-2 -translate-x-1/2 ${
+        showSongSearch && !isPerformanceMode
+          ? 'sm:left-[calc(50%+220px)] left-1/2 w-[95%] sm:max-w-4xl'
+          : 'left-1/2 w-[95%] max-w-5xl'
+      } ${
         isPerformanceMode ? 'opacity-0 pointer-events-none translate-y-8' : 'opacity-100 translate-y-0'
       }`}
     >
@@ -108,6 +142,145 @@ export const Controls: React.FC<ControlsProps> = ({
             className="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-amber-400"
           />
           <span className="text-[11px] font-mono text-zinc-400 min-w-[36px]">{formatTime(totalDuration)}</span>
+        </div>
+      )}
+
+      {/* Harmonium Acoustic Real-Time Tone, Transpose & Reverb Strip */}
+      {inputMode === 'harmonium' && (
+        <div className="flex flex-wrap items-center justify-between gap-2.5 px-5 py-2.5 bg-zinc-950/90 backdrop-blur-2xl border border-amber-500/30 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.7)] text-xs">
+          {/* Left: Indian Scale Changer (Transpose) */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase text-amber-400 tracking-wider flex items-center gap-1">
+              <SlidersHorizontal size={13} />
+              Scale Changer:
+            </span>
+
+            <div className="flex items-center gap-1 bg-black/60 border border-white/10 px-1 py-0.5 rounded-xl">
+              <button
+                onClick={() => setTranspose(transpose - 1)}
+                className="p-1 hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition-all cursor-pointer"
+                title="Transpose down 1 semitone"
+              >
+                <Minus size={13} />
+              </button>
+
+              <select
+                value={((transpose % 12) + 12) % 12}
+                onChange={(e) => setTranspose(Number(e.target.value))}
+                className="bg-transparent text-amber-300 font-mono font-bold text-xs px-1 cursor-pointer focus:outline-none"
+                title="Select Root Scale (Sur)"
+              >
+                {INDIAN_SCALES.map((scale) => (
+                  <option key={scale.st} value={scale.st} className="bg-zinc-900 text-white">
+                    {scale.key} ({scale.in}) {scale.st > 0 ? `+${scale.st}` : '0'}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                onClick={() => setTranspose(transpose + 1)}
+                className="p-1 hover:bg-white/10 rounded-lg text-zinc-300 hover:text-white transition-all cursor-pointer"
+                title="Transpose up 1 semitone"
+              >
+                <Plus size={13} />
+              </button>
+            </div>
+
+            {transpose !== 0 && (
+              <button
+                onClick={() => setTranspose(0)}
+                className="px-2 py-0.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] text-zinc-400 hover:text-white cursor-pointer"
+                title="Reset scale to C (Safed 1)"
+              >
+                Reset (C)
+              </button>
+            )}
+          </div>
+
+          {/* Center: Reverb Control */}
+          <div className="flex items-center gap-2 border-l border-white/10 pl-3">
+            <div className="flex items-center gap-1.5 text-zinc-300 text-[11px] font-bold">
+              <Waves size={14} className="text-amber-400" />
+              <span>Reverb:</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min="0"
+                max="0.8"
+                step="0.05"
+                value={reverbWet}
+                onChange={(e) => setReverbWet(parseFloat(e.target.value))}
+                className="w-20 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-amber-400"
+                title={`Harmonium Hall Reverb Wet: ${Math.round(reverbWet * 100)}%`}
+              />
+              <span className="font-mono text-amber-300 text-[11px] min-w-[28px]">
+                {Math.round(reverbWet * 100)}%
+              </span>
+            </div>
+
+            {/* Preset Reverb buttons */}
+            <div className="hidden lg:flex items-center gap-1 text-[10px]">
+              {[
+                { label: 'Dry', wet: 0.1 },
+                { label: 'Mehfil', wet: 0.28 },
+                { label: 'Darbar', wet: 0.55 },
+              ].map((rev) => (
+                <button
+                  key={rev.label}
+                  onClick={() => setReverbWet(rev.wet)}
+                  className={`px-2 py-0.5 rounded-md cursor-pointer transition-all ${
+                    Math.abs(reverbWet - rev.wet) < 0.05
+                      ? 'bg-amber-400 text-black font-bold'
+                      : 'bg-white/5 text-zinc-400 hover:text-white'
+                  }`}
+                >
+                  {rev.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: Harmonium Reed Stops (Bass & Coupler) */}
+          <div className="hidden sm:flex items-center gap-1.5 border-l border-white/10 pl-3">
+            <span className="text-[10px] uppercase font-bold text-zinc-400 mr-1">Reeds:</span>
+            <button
+              onClick={() => setHarmoniumConfig({ bass: !harmoniumBassReed })}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                harmoniumBassReed
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                  : 'bg-white/5 text-zinc-500 border border-white/5'
+              }`}
+              title="Bass Reed: Deep woody sub-octave fundamental"
+            >
+              Bass (-12)
+            </button>
+
+            <button
+              onClick={() => setHarmoniumConfig({ coupler: !harmoniumCoupler })}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                harmoniumCoupler
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                  : 'bg-white/5 text-zinc-500 border border-white/5'
+              }`}
+              title="Octave Coupler: High shimmering reed (+12)"
+            >
+              Coupler (+12)
+            </button>
+
+            <button
+              onClick={() => setHarmoniumConfig({ bellows: harmoniumBellows > 0.2 ? 0.0 : 0.45 })}
+              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                harmoniumBellows > 0.2
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-400/40'
+                  : 'bg-white/5 text-zinc-500 border border-white/5'
+              }`}
+              title="Bellows Air Flutter / Tremolo"
+            >
+              Bellows
+            </button>
+          </div>
         </div>
       )}
 
@@ -309,6 +482,20 @@ export const Controls: React.FC<ControlsProps> = ({
               <Trash2 size={16} />
             </button>
           )}
+
+          {/* Song Finder & Web Search Side Panel Toggle */}
+          <button
+            onClick={toggleSongSearch}
+            className={`px-3 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 text-xs font-bold ${
+              showSongSearch
+                ? 'bg-gradient-to-r from-amber-500 to-yellow-400 text-black shadow-[0_0_15px_rgba(245,158,11,0.4)]'
+                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-400/30'
+            }`}
+            title="Search songs, Indian Sargam notes, mapped keyboard keys & auto-play"
+          >
+            <BookOpen size={16} />
+            <span className="hidden sm:inline">Song Finder</span>
+          </button>
 
           {/* Song Notes Manual */}
           <button

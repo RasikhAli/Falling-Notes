@@ -11,17 +11,36 @@ import { useMIDIStore } from '../store/MIDIStore';
 class AudioEngine {
   private sampler: Tone.Sampler | null = null;
   private pianoSynth: Tone.PolySynth<Tone.Synth> | null = null;
-  private harmoniumSynth: Tone.PolySynth<Tone.Synth> | null = null;
+  
+  // Authentic Indian Harmonium Multi-Reed Synthesizer Engine
+  private harmoniumMaleSynth: Tone.PolySynth<Tone.Synth> | null = null;
+  private harmoniumBassSynth: Tone.PolySynth<Tone.Synth> | null = null;
+  private harmoniumCouplerSynth: Tone.PolySynth<Tone.Synth> | null = null;
+  private harmoniumFilter: Tone.Filter | null = null;
+  private harmoniumChorus: Tone.Chorus | null = null;
+  private harmoniumVibrato: Tone.Vibrato | null = null;
+
   private masterLimiter: Tone.Limiter | null = null;
   private masterCompressor: Tone.Compressor | null = null;
-  private masterReverb: Tone.Reverb | null = null;
+  public masterReverb: Tone.Reverb | null = null;
   private audioSourceNode: AudioBufferSourceNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private audioBufferStartTime = 0;
   private audioBufferPauseOffset = 0;
 
+  // Track exact sounding frequencies per MIDI note to guarantee zero stuck notes
+  private activeHarmoniumNotes = new Map<number, { freq: number; bassFreq?: number; couplerFreq?: number }>();
+  private activePianoNotes = new Map<number, { noteName: string; freq: number }>();
+
   public isInitialized = false;
   public isAudioBufferPlaying = false;
+  
+  // Harmonium Reed Controls & Transpose
+  public transpose = 0;
+  public harmoniumMaleActive = true;
+  public harmoniumBassActive = true;
+  public harmoniumCouplerActive = true;
+  public bellowsFlutter = 0.4;
 
   public async init(): Promise<void> {
     if (this.isInitialized) return;
@@ -37,10 +56,10 @@ class AudioEngine {
       await rawCtx.resume();
     }
 
-    // 1. Master Dynamics Chain (Prevents any clipping or harsh buzzing)
+    // 1. Master Dynamics Chain (Prevents clipping and creates concert space)
     this.masterLimiter = new Tone.Limiter(-0.5).toDestination();
     this.masterCompressor = new Tone.Compressor({
-      threshold: -16,
+      threshold: -14,
       ratio: 4,
       attack: 0.005,
       release: 0.15
@@ -48,11 +67,17 @@ class AudioEngine {
 
     this.masterReverb = new Tone.Reverb({
       decay: 2.8,
-      wet: 0.18,
+      wet: 0.28,
       preDelay: 0.02
     }).connect(this.masterCompressor);
 
-    // 2. High-Quality Acoustic Piano Synthesizer (Instant acoustic sound, zero latency)
+    try {
+      await this.masterReverb.generate();
+    } catch {
+      // Fallback
+    }
+
+    // 2. High-Quality Acoustic Piano Synthesizer
     this.pianoSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: {
         type: 'triangle'
@@ -68,36 +93,92 @@ class AudioEngine {
     this.pianoSynth.volume.value = -3;
     this.pianoSynth.connect(this.masterReverb);
 
-    // 3. Authentic Indian Harmonium Reed Engine
-    // Indian harmoniums have two sets of brass reeds (Male + Bass) creating a warm reedy resonance.
-    const harmoniumFilter = new Tone.Filter({
-      frequency: 2200,
-      type: 'lowpass',
-      rolloff: -12,
-      Q: 1.5
+    // 3. Authentic Indian Harmonium Multi-Reed Engine
+    // Indian harmoniums have brass reeds mounted in wooden chambers.
+    // We synthesize the Male reed (unison with beating), Bass reed (sub-octave -12),
+    // and Coupler reed (octave +12) with warm wooden chamber EQ and bellows air flutter.
+
+    const harmoniumEQ = new Tone.EQ3({
+      low: 2.5,     // Rich woody warmth
+      mid: 2.2,     // Nasal reed projection
+      high: -4.0,   // Dampen synthetic treble sizzle
+      lowFrequency: 320,
+      highFrequency: 2700
     }).connect(this.masterReverb);
 
-    const harmoniumChorus = new Tone.Chorus({
-      frequency: 4.5,
-      delayTime: 3.5,
-      depth: 0.35,
-      wet: 0.3
-    }).connect(harmoniumFilter).start();
+    this.harmoniumFilter = new Tone.Filter({
+      frequency: 2600,
+      type: 'lowpass',
+      rolloff: -12,
+      Q: 1.8
+    }).connect(harmoniumEQ);
 
-    this.harmoniumSynth = new Tone.PolySynth(Tone.Synth, {
+    // Bellows Air Vibrato (Natural breathing air pressure flutter from pumping)
+    this.harmoniumVibrato = new Tone.Vibrato({
+      frequency: 4.8,
+      depth: 0.08,
+      wet: this.bellowsFlutter
+    }).connect(this.harmoniumFilter);
+
+    // Natural Acoustic Brass Reed Detuning / Chorus
+    this.harmoniumChorus = new Tone.Chorus({
+      frequency: 2.4,
+      delayTime: 3.5,
+      depth: 0.45,
+      wet: 0.35
+    }).connect(this.harmoniumVibrato).start();
+
+    // A. Male Reeds (Primary vibrating reed with multi-reed beating)
+    this.harmoniumMaleSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: {
+        type: 'fatsawtooth',
+        count: 3,
+        spread: 14
+      },
+      envelope: {
+        attack: 0.028,
+        decay: 0.15,
+        sustain: 0.90,
+        release: 0.24
+      }
+    });
+    this.harmoniumMaleSynth.maxPolyphony = 32;
+    this.harmoniumMaleSynth.volume.value = -7;
+    this.harmoniumMaleSynth.connect(this.harmoniumChorus);
+
+    // B. Bass Reeds (Sub-octave -12 semitones, produces rich foundational drone)
+    this.harmoniumBassSynth = new Tone.PolySynth(Tone.Synth, {
       oscillator: {
         type: 'sawtooth'
       },
       envelope: {
-        attack: 0.035, // Natural reed valve opening
-        decay: 0.1,
+        attack: 0.038,
+        decay: 0.2,
         sustain: 0.85,
-        release: 0.25   // Authentic acoustic decay when key is released
+        release: 0.28
       }
     });
-    this.harmoniumSynth.maxPolyphony = 24;
-    this.harmoniumSynth.volume.value = -6;
-    this.harmoniumSynth.connect(harmoniumChorus);
+    this.harmoniumBassSynth.maxPolyphony = 24;
+    this.harmoniumBassSynth.volume.value = -9;
+    this.harmoniumBassSynth.connect(this.harmoniumChorus);
+
+    // C. Octave Coupler (High reed +12 semitones, gives grand Darbar sound)
+    this.harmoniumCouplerSynth = new Tone.PolySynth(Tone.Synth, {
+      oscillator: {
+        type: 'fattriangle',
+        count: 2,
+        spread: 12
+      },
+      envelope: {
+        attack: 0.032,
+        decay: 0.12,
+        sustain: 0.72,
+        release: 0.20
+      }
+    });
+    this.harmoniumCouplerSynth.maxPolyphony = 24;
+    this.harmoniumCouplerSynth.volume.value = -13;
+    this.harmoniumCouplerSynth.connect(this.harmoniumChorus);
 
     // 4. Acoustic Grand Piano Sampler (Asynchronous enhancement)
     const samples: { [key: string]: string } = {
@@ -120,7 +201,6 @@ class AudioEngine {
           useMIDIStore.getState().setSamplesLoaded(true);
         },
         onerror: () => {
-          // If remote CDN fails, pianoSynth acts as the acoustic synthesizer
           useMIDIStore.getState().setSamplesLoaded(true);
         }
       }).connect(this.masterReverb);
@@ -128,7 +208,6 @@ class AudioEngine {
       useMIDIStore.getState().setSamplesLoaded(true);
     }
 
-    // Set samples loaded immediately so user can play without waiting
     useMIDIStore.getState().setSamplesLoaded(true);
     useMIDIStore.getState().setAudioInitialized(true);
     this.isInitialized = true;
@@ -148,6 +227,45 @@ class AudioEngine {
     return this.analyserNode;
   }
 
+  // --- Dynamic Real-Time Controls: Transpose, Reverb, Bellows, Reeds ---
+
+  public setTranspose(semitones: number): void {
+    this.transpose = semitones;
+  }
+
+  public setReverbWet(val: number): void {
+    if (this.masterReverb) {
+      this.masterReverb.wet.value = Math.max(0, Math.min(1, val));
+    }
+  }
+
+  public setReverbDecay(seconds: number): void {
+    if (this.masterReverb) {
+      try {
+        this.masterReverb.decay = Math.max(0.5, Math.min(10, seconds));
+        this.masterReverb.generate();
+      } catch {
+        // Fallback
+      }
+    }
+  }
+
+  public setHarmoniumReeds(config: { bass?: boolean; male?: boolean; coupler?: boolean }): void {
+    if (config.bass !== undefined) this.harmoniumBassActive = config.bass;
+    if (config.male !== undefined) this.harmoniumMaleActive = config.male;
+    if (config.coupler !== undefined) this.harmoniumCouplerActive = config.coupler;
+  }
+
+  public setHarmoniumBellows(val: number): void {
+    this.bellowsFlutter = val;
+    if (this.harmoniumVibrato) {
+      this.harmoniumVibrato.wet.value = Math.max(0, Math.min(1, val * 0.8));
+    }
+    if (this.harmoniumChorus) {
+      this.harmoniumChorus.depth = 0.2 + val * 0.5;
+    }
+  }
+
   public triggerNoteOn(midi: number, velocity = 100): void {
     if (!this.isInitialized) {
       this.init().then(() => this.triggerNoteOn(midi, velocity));
@@ -155,18 +273,41 @@ class AudioEngine {
     }
 
     const { inputMode } = useMIDIStore.getState();
-    const noteName = Tone.Frequency(midi, "midi").toNote();
-    const freq = Tone.Frequency(midi, "midi").toFrequency();
+    const soundMidi = midi + this.transpose;
     const vel = Math.max(0.1, Math.min(1.0, velocity / 127));
 
-    if (inputMode === 'harmonium' && this.harmoniumSynth) {
-      this.harmoniumSynth.triggerAttack(freq, Tone.now(), vel);
+    if (inputMode === 'harmonium') {
+      const freq = Tone.Frequency(soundMidi, "midi").toFrequency();
+      const activeObj: { freq: number; bassFreq?: number; couplerFreq?: number } = { freq };
+
+      if (this.harmoniumMaleActive && this.harmoniumMaleSynth) {
+        this.harmoniumMaleSynth.triggerAttack(freq, Tone.now(), vel);
+      }
+
+      if (this.harmoniumBassActive && this.harmoniumBassSynth && soundMidi - 12 >= 21) {
+        const bassFreq = Tone.Frequency(soundMidi - 12, "midi").toFrequency();
+        activeObj.bassFreq = bassFreq;
+        this.harmoniumBassSynth.triggerAttack(bassFreq, Tone.now(), vel * 0.9);
+      }
+
+      if (this.harmoniumCouplerActive && this.harmoniumCouplerSynth && soundMidi + 12 <= 108) {
+        const couplerFreq = Tone.Frequency(soundMidi + 12, "midi").toFrequency();
+        activeObj.couplerFreq = couplerFreq;
+        this.harmoniumCouplerSynth.triggerAttack(couplerFreq, Tone.now(), vel * 0.7);
+      }
+
+      this.activeHarmoniumNotes.set(midi, activeObj);
     } else {
+      const noteName = Tone.Frequency(soundMidi, "midi").toNote();
+      const freq = Tone.Frequency(soundMidi, "midi").toFrequency();
+
       if (this.sampler && this.sampler.loaded) {
         this.sampler.triggerAttack(noteName, Tone.now(), vel);
       } else if (this.pianoSynth) {
         this.pianoSynth.triggerAttack(freq, Tone.now(), vel);
       }
+
+      this.activePianoNotes.set(midi, { noteName, freq });
     }
   }
 
@@ -174,17 +315,40 @@ class AudioEngine {
     if (!this.isInitialized) return;
 
     const { inputMode } = useMIDIStore.getState();
-    const noteName = Tone.Frequency(midi, "midi").toNote();
-    const freq = Tone.Frequency(midi, "midi").toFrequency();
 
-    if (inputMode === 'harmonium' && this.harmoniumSynth) {
-      this.harmoniumSynth.triggerRelease(freq, Tone.now());
+    if (inputMode === 'harmonium') {
+      const activeObj = this.activeHarmoniumNotes.get(midi);
+      const soundMidi = midi + this.transpose;
+      const freq = activeObj ? activeObj.freq : Tone.Frequency(soundMidi, "midi").toFrequency();
+
+      if (this.harmoniumMaleSynth) {
+        this.harmoniumMaleSynth.triggerRelease(freq, Tone.now());
+      }
+
+      if (this.harmoniumBassSynth) {
+        const bassFreq = activeObj?.bassFreq ?? Tone.Frequency(soundMidi - 12, "midi").toFrequency();
+        this.harmoniumBassSynth.triggerRelease(bassFreq, Tone.now());
+      }
+
+      if (this.harmoniumCouplerSynth) {
+        const couplerFreq = activeObj?.couplerFreq ?? Tone.Frequency(soundMidi + 12, "midi").toFrequency();
+        this.harmoniumCouplerSynth.triggerRelease(couplerFreq, Tone.now());
+      }
+
+      this.activeHarmoniumNotes.delete(midi);
     } else {
+      const activeObj = this.activePianoNotes.get(midi);
+      const soundMidi = midi + this.transpose;
+      const noteName = activeObj ? activeObj.noteName : Tone.Frequency(soundMidi, "midi").toNote();
+      const freq = activeObj ? activeObj.freq : Tone.Frequency(soundMidi, "midi").toFrequency();
+
       if (this.sampler && this.sampler.loaded) {
         this.sampler.triggerRelease(noteName, Tone.now());
       } else if (this.pianoSynth) {
         this.pianoSynth.triggerRelease(freq, Tone.now());
       }
+
+      this.activePianoNotes.delete(midi);
     }
   }
 

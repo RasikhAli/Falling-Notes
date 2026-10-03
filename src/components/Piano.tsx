@@ -231,7 +231,7 @@ export const Piano: React.FC = () => {
           {/* Golden Badge */}
           <Text
             position={[0, WHITE_KEY_LENGTH / 2 + 2.0, 2.3]}
-            fontSize={0.9}
+            fontSize={0.8}
             color="#fef08a"
             anchorX="center"
             anchorY="middle"
@@ -260,12 +260,12 @@ export const Piano: React.FC = () => {
           {/* Gold Inlaid Brand Name */}
           <Text
             position={[0, WHITE_KEY_LENGTH / 2 + 1.8, 2.5]}
-            fontSize={1.1}
+            fontSize={1.05}
             color="#fef08a"
             anchorX="center"
             anchorY="middle"
           >
-            AGNIFIC CONCERT GRAND
+            MAGNIFIC CONCERT GRAND
           </Text>
 
           {/* Left & Right Cheek Blocks */}

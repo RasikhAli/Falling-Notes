@@ -27,8 +27,14 @@ interface MIDIStore {
   showLabels: 'both' | 'notes' | 'keys' | 'none';
   transpose: number;
   octaveShift: number;
+  reverbWet: number;
+  reverbDecay: number;
+  harmoniumBassReed: boolean;
+  harmoniumCoupler: boolean;
+  harmoniumBellows: number;
   showSettings: boolean;
   showGuide: boolean;
+  showSongSearch: boolean;
   isPerformanceMode: boolean;
   isTranscribing: boolean;
   transcriptionProgress: number;
@@ -36,6 +42,7 @@ interface MIDIStore {
   loadMIDI: (file: File) => Promise<void>;
   loadAudioOrVideo: (file: File) => Promise<void>;
   loadDemo: (index: number) => void;
+  loadCustomSong: (name: string, notes: Note[], mode?: 'piano' | 'harmonium', autoPlay?: boolean) => void;
   togglePlay: () => void;
   reset: () => void;
   clearMidi: () => void;
@@ -45,6 +52,8 @@ interface MIDIStore {
   setShowLabels: (labels: 'both' | 'notes' | 'keys' | 'none') => void;
   toggleNotesManual: () => void;
   setShowNotesManual: (val: boolean) => void;
+  toggleSongSearch: () => void;
+  setShowSongSearch: (val: boolean) => void;
   updateTime: (deltaSeconds: number) => void;
   triggerNoteOn: (midi: number, velocity?: number, isLive?: boolean) => void;
   triggerNoteOff: (midi: number, isLive?: boolean) => void;
@@ -53,6 +62,9 @@ interface MIDIStore {
   setInputMode: (mode: 'piano' | 'harmonium') => void;
   setTranspose: (val: number) => void;
   setOctaveShift: (val: number) => void;
+  setReverbWet: (val: number) => void;
+  setReverbDecay: (val: number) => void;
+  setHarmoniumConfig: (config: { bass?: boolean; coupler?: boolean; bellows?: number }) => void;
   toggleSettings: () => void;
   toggleGuide: () => void;
   togglePerformanceMode: () => void;
@@ -85,8 +97,14 @@ export const useMIDIStore = create<MIDIStore>((set, get) => ({
   showLabels: 'both',
   transpose: 0,
   octaveShift: 3,
+  reverbWet: 0.28,
+  reverbDecay: 2.8,
+  harmoniumBassReed: true,
+  harmoniumCoupler: true,
+  harmoniumBellows: 0.4,
   showSettings: false,
   showGuide: false,
+  showSongSearch: false,
   isPerformanceMode: false,
   isTranscribing: false,
   transcriptionProgress: 0,
@@ -202,6 +220,33 @@ export const useMIDIStore = create<MIDIStore>((set, get) => ({
       activeNotes: new Set(),
       liveHistory: []
     });
+  },
+
+  loadCustomSong: (name, customNotes, mode, autoPlay = true) => {
+    audioEngine.stopAudioBuffer();
+    activeMidiExpirations.clear();
+    const maxTime = customNotes.reduce((max, n) => Math.max(max, n.time + n.duration), 0);
+    const chosenMode = mode || get().inputMode;
+
+    set({
+      midiData: null,
+      audioBuffer: null,
+      audioFileName: name,
+      notes: [...customNotes],
+      totalDuration: maxTime,
+      inputMode: chosenMode,
+      isPlaying: false,
+      currentTime: 0,
+      nextNoteIndex: 0,
+      activeNotes: new Set(),
+      liveHistory: []
+    });
+
+    if (autoPlay) {
+      audioEngine.init().then(() => {
+        set({ isPlaying: true });
+      });
+    }
   },
 
   togglePlay: () => {
@@ -325,6 +370,8 @@ export const useMIDIStore = create<MIDIStore>((set, get) => ({
   setShowLabels: (labels) => set({ showLabels: labels }),
   toggleNotesManual: () => set((state) => ({ showNotesManual: !state.showNotesManual })),
   setShowNotesManual: (val) => set({ showNotesManual: val }),
+  toggleSongSearch: () => set((state) => ({ showSongSearch: !state.showSongSearch })),
+  setShowSongSearch: (val) => set({ showSongSearch: val }),
 
   updateTime: (delta) => {
     const state = get();
@@ -449,8 +496,28 @@ export const useMIDIStore = create<MIDIStore>((set, get) => ({
   setSamplesLoaded: (loaded) => set({ isSamplesLoaded: loaded }),
   setAudioInitialized: (val) => set({ isAudioInitialized: val }),
   setInputMode: (mode) => set({ inputMode: mode }),
-  setTranspose: (val) => set({ transpose: val }),
+  setTranspose: (val) => {
+    audioEngine.setTranspose(val);
+    set({ transpose: val });
+  },
   setOctaveShift: (val) => set({ octaveShift: val }),
+  setReverbWet: (val) => {
+    audioEngine.setReverbWet(val);
+    set({ reverbWet: val });
+  },
+  setReverbDecay: (val) => {
+    audioEngine.setReverbDecay(val);
+    set({ reverbDecay: val });
+  },
+  setHarmoniumConfig: (config) => {
+    audioEngine.setHarmoniumReeds({ bass: config.bass, coupler: config.coupler });
+    if (config.bellows !== undefined) audioEngine.setHarmoniumBellows(config.bellows);
+    set((state) => ({
+      harmoniumBassReed: config.bass !== undefined ? config.bass : state.harmoniumBassReed,
+      harmoniumCoupler: config.coupler !== undefined ? config.coupler : state.harmoniumCoupler,
+      harmoniumBellows: config.bellows !== undefined ? config.bellows : state.harmoniumBellows,
+    }));
+  },
   toggleSettings: () => set((state) => ({ showSettings: !state.showSettings })),
   toggleGuide: () => set((state) => ({ showGuide: !state.showGuide })),
   togglePerformanceMode: () => set((state) => ({ isPerformanceMode: !state.isPerformanceMode })),

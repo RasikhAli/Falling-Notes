@@ -15,15 +15,24 @@ const ResponsiveScene: React.FC = () => {
   const aspect = Math.max(0.2, size.width / Math.max(1, size.height));
 
   // Determine optimal camera frustum so the keyboard is always fully framed across all screen sizes
-  const targetKeyboardWidth = inputMode === 'harmonium' ? 76 : 138;
+  const targetKeyboardWidth = inputMode === 'harmonium' ? 88 : 138;
 
-  // On narrower windows, scale width so the 88 keys fit without clipping on edges
+  // On narrower windows, scale width so the keys fit without clipping on edges
   const halfWidth = aspect >= 1.7
     ? targetKeyboardWidth / 2
     : (targetKeyboardWidth / 2) * Math.max(1, 1.7 / aspect);
 
   const halfHeight = halfWidth / aspect;
-  const centerY = -1.5;
+
+  // Key bottom in camera view space (accounting for orthographic tilt and Z distance)
+  // World key bottom is at Y = -19.3, Z = 0; camera at Y = -1.0, Z = 32 with tilt 0.16 rad.
+  // In camera view space: (-19.3 - (-1.0)) * cos(0.16) - (0 - 32) * sin(0.16) ≈ -13.0
+  const yKeyCam = -13.0;
+
+  // Safe bottom margin: Harmonium displays extra Indian scale changer strip so it needs ~33% margin;
+  // Piano needs ~28% margin to float cleanly above the main control dock.
+  const bottomMarginPercent = inputMode === 'harmonium' ? 0.33 : 0.28;
+  const centerY = (1 - 2 * bottomMarginPercent) * halfHeight + yKeyCam;
 
   return (
     <>

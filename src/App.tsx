@@ -2,10 +2,11 @@ import { useEffect } from 'react';
 import { Visualizer } from './components/Visualizer';
 import { Controls } from './components/Controls';
 import { SongNotesManual } from './components/SongNotesManual';
+import { SongSearchPanel } from './components/SongSearchPanel';
 import { useMIDIStore } from './store/MIDIStore';
 import { useInput } from './hooks/useInput';
 import { audioEngine } from './utils/AudioEngine';
-import { Music, Piano as PianoIcon, X, Sparkles, FileAudio, Sliders, Headphones, Mic, EyeOff, FileText } from 'lucide-react';
+import { Music, Piano as PianoIcon, X, Sparkles, FileAudio, Sliders, Headphones, Mic, EyeOff, FileText, BookOpen, Waves } from 'lucide-react';
 
 function App() {
   const isPlaying = useMIDIStore((state) => state.isPlaying);
@@ -40,6 +41,13 @@ function App() {
   const loadDemo = useMIDIStore((state) => state.loadDemo);
   const showNotesManual = useMIDIStore((state) => state.showNotesManual);
   const toggleNotesManual = useMIDIStore((state) => state.toggleNotesManual);
+  const showSongSearch = useMIDIStore((state) => state.showSongSearch);
+  const toggleSongSearch = useMIDIStore((state) => state.toggleSongSearch);
+  const reverbWet = useMIDIStore((state) => state.reverbWet);
+  const setReverbWet = useMIDIStore((state) => state.setReverbWet);
+  const harmoniumBassReed = useMIDIStore((state) => state.harmoniumBassReed);
+  const harmoniumCoupler = useMIDIStore((state) => state.harmoniumCoupler);
+  const setHarmoniumConfig = useMIDIStore((state) => state.setHarmoniumConfig);
 
   // Initialize input listeners
   useInput();
@@ -49,6 +57,7 @@ function App() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         if (isPerformanceMode) togglePerformance();
+        if (showSongSearch) toggleSongSearch();
         if (showNotesManual) toggleNotesManual();
         if (showGuide) toggleGuide();
         if (showSettings) toggleSettings();
@@ -56,7 +65,7 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isPerformanceMode, showNotesManual, showGuide, showSettings, togglePerformance, toggleNotesManual, toggleGuide, toggleSettings]);
+  }, [isPerformanceMode, showSongSearch, showNotesManual, showGuide, showSettings, togglePerformance, toggleSongSearch, toggleNotesManual, toggleGuide, toggleSettings]);
 
   // Internal playback animation loop
   useEffect(() => {
@@ -87,7 +96,13 @@ function App() {
   return (
     <div className="relative w-screen h-screen bg-[#030306] text-white overflow-hidden select-none font-sans">
       {/* 3D Visualizer Scene */}
-      <Visualizer />
+      <div
+        className={`w-full h-full transition-[padding] duration-300 ease-in-out ${
+          showSongSearch && !isPerformanceMode ? 'sm:pl-[440px]' : 'pl-0'
+        }`}
+      >
+        <Visualizer />
+      </div>
 
       {/* Audio / Video Transcription Loading Overlay */}
       {isTranscribing && (
@@ -310,8 +325,12 @@ function App() {
               {/* Transpose Slider */}
               <div className="space-y-2">
                 <div className="flex justify-between">
-                  <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">Transpose</label>
-                  <span className="text-xs text-amber-400 font-mono font-bold">{transpose > 0 ? `+${transpose}` : transpose} semitones</span>
+                  <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider">
+                    {inputMode === 'harmonium' ? 'Scale Changer (Transpose)' : 'Transpose Pitch'}
+                  </label>
+                  <span className="text-xs text-amber-400 font-mono font-bold">
+                    {transpose > 0 ? `+${transpose}` : transpose} semitones
+                  </span>
                 </div>
                 <input
                   type="range"
@@ -323,6 +342,62 @@ function App() {
                   className="w-full accent-amber-400 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
                 />
               </div>
+
+              {/* Master Reverb Control */}
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <label className="text-xs text-zinc-400 uppercase font-bold tracking-wider flex items-center gap-1.5">
+                    <Waves size={13} className="text-amber-400" />
+                    <span>Concert Reverb (Wet Space)</span>
+                  </label>
+                  <span className="text-xs text-amber-400 font-mono font-bold">{Math.round(reverbWet * 100)}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="0.8"
+                  step="0.05"
+                  value={reverbWet}
+                  onChange={(e) => setReverbWet(parseFloat(e.target.value))}
+                  className="w-full accent-amber-400 h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer"
+                />
+                <div className="flex justify-between text-[10px] text-zinc-500 font-mono">
+                  <span>Dry (0%)</span>
+                  <span>Mehfil (28%)</span>
+                  <span>Darbar (55%)</span>
+                </div>
+              </div>
+
+              {/* Harmonium Specific Reed Stops */}
+              {inputMode === 'harmonium' && (
+                <div className="space-y-2 p-3 bg-black/40 border border-amber-500/20 rounded-xl">
+                  <label className="text-[10px] text-amber-400 uppercase font-black tracking-wider block">
+                    Harmonium Reed Bank &amp; Bellows
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 text-xs font-bold">
+                    <button
+                      onClick={() => setHarmoniumConfig({ bass: !harmoniumBassReed })}
+                      className={`p-2 rounded-lg border transition-all cursor-pointer ${
+                        harmoniumBassReed
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-400/40 shadow'
+                          : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                      }`}
+                    >
+                      Bass Reed (-12)
+                    </button>
+                    <button
+                      onClick={() => setHarmoniumConfig({ coupler: !harmoniumCoupler })}
+                      className={`p-2 rounded-lg border transition-all cursor-pointer ${
+                        harmoniumCoupler
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-400/40 shadow'
+                          : 'bg-zinc-800 text-zinc-500 border-zinc-700'
+                      }`}
+                    >
+                      Octave Coupler (+12)
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Octave Slider */}
               <div className="space-y-2">
@@ -395,6 +470,18 @@ function App() {
             </div>
           )}
         </div>
+
+        {/* Top Right Quick Access: Song Finder & Keys Button */}
+        <div className="flex items-center gap-2 pointer-events-auto">
+          <button
+            onClick={toggleSongSearch}
+            className="px-3.5 py-2 bg-zinc-900/90 hover:bg-zinc-850 border border-amber-500/30 hover:border-amber-400/60 text-amber-300 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)] cursor-pointer backdrop-blur-md"
+            title="Search songs, Sargam notes & mapped keyboard keys"
+          >
+            <BookOpen size={15} className="text-amber-400" />
+            <span className="hidden sm:inline">Song Finder &amp; Keys</span>
+          </button>
+        </div>
       </header>
 
       {/* Cinematic / Performance Mode Floating Exit Button */}
@@ -458,6 +545,9 @@ function App() {
 
       {/* Interactive Song Notes Manual Drawer */}
       <SongNotesManual />
+
+      {/* Interactive Song Finder, Web Search & Sargam Parser Side Panel */}
+      <SongSearchPanel />
     </div>
   );
 }
